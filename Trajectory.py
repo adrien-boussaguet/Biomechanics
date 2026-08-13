@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from scipy.signal import savgol_filter
 
 # Chemin vers ton fichier exporté
-file_path = 'G:\Documents\VS Code\Biomecha\Biomechanics\VID_20260813_150533.csv'
+file_path = 'G:\Documents\VS Code\Biomecha\Biomechanics\Shoulder Tracking.csv'
 
 try:
     # Lecture du CSV 
@@ -43,7 +43,7 @@ try:
 
     # 4. Lissage avec Savitzky-Golay
     # window_length (impair) gère la force du lissage. 15 ou 21 sont de bonnes bases.
-    angle_smoothed = savgol_filter(angle_deg, window_length=15, polyorder=3)
+    angle_smoothed = savgol_filter(angle_deg, window_length=21, polyorder=3)
     
     # 5. Calcul de la vitesse angulaire (optionnel mais utile)
     dt = np.mean(np.diff(time))
