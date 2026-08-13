@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+from scipy.signal import savgol_filter
 
 #Masses
 m_body = 80 #kg
@@ -17,7 +18,7 @@ g=9.81
 #Segments
 L1=0.272 #m - avant-bras
 L2=0.31 #m - bras
-d3=0.536   #m - centre de masse corps
+d3=0.60   #m - centre de masse corps
 
 #Inertie et bras de levier
 I_elbow = 2.5       #kg.m^2
@@ -26,11 +27,15 @@ I_shoulder = 42.5
 la_shoulder = 0.045
 
 #Extraction CSV
-#,'G:\Documents\VS Code\Biomecha\Biomechanics\Tracking\Shoulder Tracking.csv'
 files_path = ['G:\Documents\VS Code\Biomecha\Biomechanics\Tracking\Hand Tracking.csv', 'G:\Documents\VS Code\Biomecha\Biomechanics\Tracking\Elbow Tracking.csv', 'G:\Documents\VS Code\Biomecha\Biomechanics\Tracking\Shoulder Trackingv4 TOP2.csv']
 
 list_angle_rad = []
 
+#effet de lissage
+def apply_savgol(col):
+    return savgol_filter(col, window_length=11, polyorder=3)
+
+#extraction des csv
 for i in range(len(files_path)):
     df = pd.read_csv(files_path[i], sep=';', decimal=',', skiprows=0)
 
@@ -52,22 +57,26 @@ for i in range(len(files_path)):
     list_angle_rad.append(angle_rad)
 
 All_angle_rad = pd.concat(list_angle_rad, axis=1)
-print(All_angle_rad)
+All_angle_smooth = All_angle_rad.apply(apply_savgol, axis=0)
+print(All_angle_smooth)
 
 def dir_vec(theta):
     return np.column_stack((np.cos(theta), np.sin(theta)))
 
-theta1 = - All_angle_rad.iloc[:, 0] + np.pi/2
-theta2 = + theta1 - np.pi + All_angle_rad.iloc[:, 1]
-theta3 = np.pi - (- theta2 + All_angle_rad.iloc[:, 2])
+#calcul des angles relatif à la vertical
+theta1 = - All_angle_smooth.iloc[:, 0] + np.pi/2
+theta2 = + theta1 - np.pi + All_angle_smooth.iloc[:, 1]
+theta3 = np.pi - (- theta2 + All_angle_smooth.iloc[:, 2])
 
 n = len(theta1)
 
+#calcul des positions
 P_hand = np.zeros((n, 2))
 P_elbow = P_hand + L1 * np.column_stack((np.cos(theta1), np.sin(theta1)))
 P_shoulder = P_elbow + L2 * np.column_stack((np.cos(theta2), np.sin(theta2)))
 G_bust = P_shoulder + d3 * np.column_stack((np.cos(theta3), np.sin(theta3)))
 
+#Graph
 fig, ax = plt.subplots()
 ax.set_xlim(-0.5, 1.5)  
 ax.set_ylim(-1, 1)  
@@ -94,7 +103,6 @@ def animate(i):
     
     return ligne_corps, trajectoire_coude, trajectoire_epaule, trajectoire_buste
 
-# Création de l'animation
 ani = animation.FuncAnimation(fig, animate, frames=len(theta2), interval=30, blit=True)
 
 plt.show()
