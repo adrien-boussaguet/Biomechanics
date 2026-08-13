@@ -1,1 +1,4 @@
-Pour modéliser le dips, on va simplifier l'athlète pas un système de 3 segments de longueur fixe : le buste, le bras et l'avant bras.
+Etape 1 : tracker les articulation ✅
+Etape 2 : graph le mouvement ✅
+Etape 3 : calcul des forces et moments
+Etape 4 : simulation inversée des muscles Hills Zener mouvement > force (conséquence > cause)
