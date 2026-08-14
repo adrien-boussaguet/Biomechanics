@@ -78,7 +78,7 @@ G_bust = P_shoulder + d3 * np.column_stack((np.cos(theta3), np.sin(theta3)))
 
 #Graph
 fig, ax = plt.subplots()
-ax.set_xlim(-0.5, 1.5)  
+ax.set_xlim(-0.5, 1)  
 ax.set_ylim(-1, 1)  
 ax.set_aspect('equal')
 
