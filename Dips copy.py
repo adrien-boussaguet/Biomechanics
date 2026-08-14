@@ -122,67 +122,75 @@ P_pelvis = P_shoulder + L3 * np.column_stack((np.sin(theta3), np.cos(theta3)))
 G_bust= P_shoulder + d3 * np.column_stack((np.sin(theta3), np.cos(theta3)))
 G_lower = P_pelvis
 
-def torque_calc(m_bust, m_arm, m_forearm, L1, L2, d3, theta1, theta2, theta3, dtheta1, dtheta2, dtheta3, ddtheta1, ddtheta2, ddtheta3):
+def torque_calc_bottom_up(m_bust, m_lower, m_arm, m_forearm, L1, L2, L3, d3, theta1, theta2, theta3, dtheta1, dtheta2, dtheta3, ddtheta1, ddtheta2, ddtheta3):
+    
+    # 1. Accélérations des centres de masse
     acc_elbow_x = L1 * (ddtheta1 * np.cos(theta1) - dtheta1**2 * np.sin(theta1))
     acc_elbow_y = - L1 * (ddtheta1 * np.sin(theta1) + dtheta1**2 * np.cos(theta1))
+
+    acc_g1_x = r1 * L1 * (ddtheta1 * np.cos(theta1) - dtheta1**2 * np.sin(theta1))
+    acc_g1_y = - r1 * L1 * (ddtheta1 * np.sin(theta1) + dtheta1**2 * np.cos(theta1))
 
     acc_shoulder_x = acc_elbow_x + L2 * (ddtheta2 * np.cos(theta2) - dtheta2**2 * np.sin(theta2))
     acc_shoulder_y = acc_elbow_y - L2 * (ddtheta2 * np.sin(theta2) + dtheta2**2 * np.cos(theta2))
 
-    acc_g1_x = r1*L1*(ddtheta1*np.cos(theta1)-dtheta1**2 * np.sin(theta1))
-    acc_g1_y = -r1*L1*(ddtheta1*np.sin(theta1)+dtheta1**2 * np.cos(theta1))
+    acc_g2_x = acc_elbow_x + r2 * L2 * (ddtheta2 * np.cos(theta2) - dtheta2**2 * np.sin(theta2))
+    acc_g2_y = acc_elbow_y - r2 * L2 * (ddtheta2 * np.sin(theta2) + dtheta2**2 * np.cos(theta2))
 
-    acc_g2_x = acc_elbow_x + r2*L2*(ddtheta2*np.cos(theta2)-dtheta2**2 * np.sin(theta2))
-    acc_g2_y = acc_elbow_y - r2*L2*(ddtheta2*np.sin(theta2)+dtheta2**2 * np.cos(theta2))
+    acc_bust_x = acc_shoulder_x + d3 * (ddtheta3 * np.cos(theta3) - dtheta3**2 * np.sin(theta3))
+    acc_bust_y = acc_shoulder_y - d3 * (ddtheta3 * np.sin(theta3) + dtheta3**2 * np.cos(theta3))
 
-    acc_bust_x = acc_shoulder_x + d3*(ddtheta3*np.cos(theta3)-dtheta3**2 * np.sin(theta3))
-    acc_bust_y = acc_shoulder_y - d3*(ddtheta3*np.sin(theta3)+dtheta3**2 * np.cos(theta3))
+    acc_pelvis_x = acc_shoulder_x + L3 * (ddtheta3 * np.cos(theta3) - dtheta3**2 * np.sin(theta3))
+    acc_pelvis_y = acc_shoulder_y - L3 * (ddtheta3 * np.sin(theta3) + dtheta3**2 * np.cos(theta3))
 
-    acc_pelvis_x = acc_shoulder_x + L3*(ddtheta3*np.cos(theta3)-dtheta3**2 * np.sin(theta3))
-    acc_pelvis_y = acc_shoulder_y - L3*(ddtheta3*np.sin(theta3)+dtheta3**2 * np.cos(theta3))
+    # 2. Forces de Réaction aux barres (GRF) estimées
+    M_tot = m_forearm + m_arm + m_bust + m_lower
+    
+    F_grf_x = (m_forearm * acc_g1_x + m_arm * acc_g2_x + m_bust * acc_bust_x + m_lower * acc_pelvis_x)
+    F_grf_y = (m_forearm * acc_g1_y + m_arm * acc_g2_y + m_bust * acc_bust_y + m_lower * acc_pelvis_y) + M_tot * g
 
-
-    #Force de réaction
-    M_tot = m_body + m_weight
-
-    F_grf_x = m_forearm*acc_g1_x + m_arm*acc_g2_x + m_bust*acc_bust_x + m_lower*acc_pelvis_x
-    F_grf_y = m_forearm*acc_g1_y + m_arm*acc_g2_y + m_bust*acc_bust_y + m_lower*acc_pelvis_y + M_tot*g
-
-    #Hand
-    d_grip_x = 0.04
-    d_grip_y = 0.00
+    # 3. Calcul de la Dynamique Inverse : Bottom-Up
+    
+    # --- ARTICULATION DE LA MAIN ---
+    d_grip_x = 0.04 # 3 centimètres (à ajuster selon ta prise)
+    d_grip_y = 0.00 
+    
+    # Le vrai couple à la main sert à contrer le moment créé par la force de réaction sur ce bras de levier
     tau_hand = (d_grip_x * F_grf_y) - (d_grip_y * F_grf_x)
 
-    #Elbow
+    # --- SEGMENT AVANT-BRAS ---
     F_elbow_x = m_forearm * acc_g1_x - F_grf_x
     F_elbow_y = m_forearm * acc_g1_y - F_grf_y + m_forearm * g
 
+    # Bras de levier (depuis le centre de masse G1)
     rx_G1_hand = - r1 * L1 * np.sin(theta1)
     ry_G1_hand = - r1 * L1 * np.cos(theta1)
     rx_G1_elbow = (1 - r1) * L1 * np.sin(theta1)
     ry_G1_elbow = (1 - r1) * L1 * np.cos(theta1)
-    
+
     M_grf_on_forearm = rx_G1_hand * F_grf_y - ry_G1_hand * F_grf_x
     M_elbow_on_forearm = rx_G1_elbow * F_elbow_y - ry_G1_elbow * F_elbow_x
-    
+
     tau_elbow = I_cm_forearm * ddtheta1 - M_grf_on_forearm - M_elbow_on_forearm
-    
-    #Forearm
+
+    # --- SEGMENT BRAS ---
     F_shoulder_x = m_arm * acc_g2_x - (-F_elbow_x)
     F_shoulder_y = m_arm * acc_g2_y - (-F_elbow_y) + m_arm * g
-    
+
     rx_G2_elbow = - r2 * L2 * np.sin(theta2)
     ry_G2_elbow = - r2 * L2 * np.cos(theta2)
     rx_G2_shoulder = (1 - r2) * L2 * np.sin(theta2)
     ry_G2_shoulder = (1 - r2) * L2 * np.cos(theta2)
-    
+
     M_elbow_on_arm = rx_G2_elbow * (-F_elbow_y) - ry_G2_elbow * (-F_elbow_x)
     M_shoulder_on_arm = rx_G2_shoulder * F_shoulder_y - ry_G2_shoulder * F_shoulder_x
-    
+
     tau_shoulder = I_cm_arm * ddtheta2 - (-tau_elbow) - M_elbow_on_arm - M_shoulder_on_arm
+
     return tau_hand, tau_elbow, tau_shoulder
 
-tau_hand, tau_elbow, tau_shoulder = torque_calc(m_bust, m_arm, m_forearm, L1, L2, d3, theta1, theta2, theta3, dtheta1, dtheta2, dtheta3, ddtheta1, ddtheta2, ddtheta3)
+# N'oublie pas de mettre à jour ton appel de fonction :
+tau_hand, tau_elbow, tau_shoulder = torque_calc_bottom_up(m_bust, m_lower, m_arm, m_forearm, L1, L2, L3, d3, theta1, theta2, theta3, dtheta1, dtheta2, dtheta3, ddtheta1, ddtheta2, ddtheta3)
 
 n_frames = len(theta1)
 frames_x = np.arange(n_frames)
