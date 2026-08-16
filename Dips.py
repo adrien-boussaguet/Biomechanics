@@ -148,7 +148,6 @@ def compute_joint_torques(
 def triceps_lever_arm(elbow_angle):
     return 0.021 + 0.005 * np.sin(elbow_angle)
 
-
 # ---------------------------------------------------------------------------
 
 smoothed_list, vel_list, acc_list = [], [], []
