@@ -5,53 +5,53 @@ import matplotlib.animation as animation
 from scipy.signal import savgol_filter
 
 #Masses
-m_body = 80 #kg
-m_weight = 60 #kg
+BODY_MASS = 80  # kg
+ADDED_WEIGHT_MASS = 60  # kg
 
-m_forearm = 2 * 0.016 * m_body
-m_arm = 2 * 0.028 * m_body
+forearm_mass = 2 * 0.016 * BODY_MASS
+upper_arm_mass = 2 * 0.028 * BODY_MASS
+legs_mass = 2 * 0.161 * BODY_MASS
+trunk_mass = BODY_MASS - forearm_mass - upper_arm_mass - legs_mass
+lower_body_mass = legs_mass + ADDED_WEIGHT_MASS
+total_system_mass = BODY_MASS + ADDED_WEIGHT_MASS
 
-m_legs= 2 * 0.161 * m_body
-m_bust = m_body - m_forearm - m_arm - m_legs
-m_lower = m_legs + m_weight
-
-g=9.81
+GRAVITY = 9.81
 
 #Segments
-L1=0.27 #m - avant-bras
-L2=0.31 #m - bras
-L3=0.45   #m - buste
-d3=0.3   #m - centre de masse corps
+FOREARM_LENGTH = 0.27  # m - avant-bras
+UPPER_ARM_LENGTH = 0.31  # m - bras
+TRUNK_LENGTH = 0.45  # m - buste
+TRUNK_COM_DISTANCE = 0.30  # m - centre de masse corps
 
-anthro_forearm_com = 0.430
-anthro_forearm_gyr = 0.303
-anthro_arm_com = 0.436
-anthro_arm_gyr = 0.322
+FOREARM_COM_RATIO = 0.430
+FOREARM_GYRATION_RATIO = 0.303
+UPPER_ARM_COM_RATIO = 0.436
+UPPER_ARM_GYRATION_RATIO = 0.322
 
-r1 = 1 - anthro_forearm_com
-r2 = 1 - anthro_arm_com
+forearm_com_ratio_distal = 1 - FOREARM_COM_RATIO
+upper_arm_com_ratio_distal = 1 - UPPER_ARM_COM_RATIO
 
-#inertie et bras de levier
-I_cm_forearm = m_forearm * (anthro_forearm_gyr * L1) ** 2
-I_cm_arm = m_arm * (anthro_arm_gyr * L2) ** 2
-I_cm_bust = 2.5
+#Inertie et bras de levier
+forearm_moment_of_inertia = forearm_mass * (FOREARM_GYRATION_RATIO * FOREARM_LENGTH) ** 2
+upper_arm_moment_of_inertia = upper_arm_mass * (UPPER_ARM_GYRATION_RATIO * UPPER_ARM_LENGTH) ** 2
+trunk_moment_of_inertia = 2.5  # pas utilise pour l'instant
 
-la_elbow = 0.025
-la_shoulder = 0.045
+elbow_lever_arm = 0.025  # inutilise pour l'instant
+shoulder_lever_arm = 0.045
 
-#Extraction CSV
-files_path = ['G:\Documents\VS Code\Biomecha\Biomechanics\Tracking\Hand Tracking.csv', 'G:\Documents\VS Code\Biomecha\Biomechanics\Tracking\Elbow Tracking.csv', 'G:\Documents\VS Code\Biomecha\Biomechanics\Tracking\Shoulder Trackingv4 TOP2.csv']
+# --- Extraction CSV ---
+csv_file_paths = [
+    r'G:\Documents\VS Code\Biomecha\Biomechanics\Tracking\Hand Tracking.csv',
+    r'G:\Documents\VS Code\Biomecha\Biomechanics\Tracking\Elbow Tracking.csv',
+    r'G:\Documents\VS Code\Biomecha\Biomechanics\Tracking\Shoulder Trackingv4 TOP2.csv',
+]
 
-list_angle_smooth = []
-list_angle_vel_rad = []
-list_angle_acc_rad = []
+window = 11
+poly = 3
 
-window=11
-poly=3
 
-#extraction des csv
-for i in range(len(files_path)):
-    df = pd.read_csv(files_path[i], sep=';', decimal=',', skiprows=0)
+def load_tracking_angle(csv_path):
+    df = pd.read_csv(csv_path, sep=';', decimal=',', skiprows=0)
 
     time = df.iloc[:, 0].to_numpy()
     dt = np.mean(np.diff(time))
@@ -64,7 +64,6 @@ for i in range(len(files_path)):
     ob_x, ob_y = bx - ox, by - oy
 
     dot_product = oa_x * ob_x + oa_y * ob_y
-    
     det = oa_x * ob_y - oa_y * ob_x
 
     angle_rad = np.arctan2(det, dot_product)
@@ -74,181 +73,210 @@ for i in range(len(files_path)):
     vel = savgol_filter(angle_unwrapped, window_length=window, polyorder=poly, deriv=1, delta=dt)
     acc = savgol_filter(angle_unwrapped, window_length=window, polyorder=poly, deriv=2, delta=dt)
 
-    list_angle_smooth.append(pd.Series(smooth))
-    list_angle_vel_rad.append(pd.Series(vel))
-    list_angle_acc_rad.append(pd.Series(acc))
+    return smooth, vel, acc, dt
 
-All_angle_smooth = pd.concat(list_angle_smooth, axis=1)
-All_angle_vel = pd.concat(list_angle_vel_rad, axis=1)
-All_angle_acc = pd.concat(list_angle_acc_rad, axis=1)
 
-def dir_vec(theta):
+def direction_vector(theta):
     return np.column_stack((np.cos(theta), np.sin(theta)))
 
-# 1. Angles absolus (par rapport à la verticale)
-a1 = All_angle_smooth.iloc[:, 0].to_numpy()
-a2 = All_angle_smooth.iloc[:, 1].to_numpy()
-a3 = All_angle_smooth.iloc[:, 2].to_numpy()
 
-theta1 = -a1 + np.pi / 2
-theta2 = theta1 - np.pi + a2
-theta3 = np.pi - (-theta2 + a3)
+def compute_joint_torques(
+    forearm_mass, upper_arm_mass, trunk_mass, lower_body_mass, total_mass,
+    forearm_length, upper_arm_length, trunk_length, trunk_com_distance,
+    forearm_angle, upper_arm_angle, trunk_angle,
+    forearm_angular_velocity, upper_arm_angular_velocity, trunk_angular_velocity,
+    forearm_angular_acceleration, upper_arm_angular_acceleration, trunk_angular_acceleration,
+):
+    elbow_acceleration_x = forearm_length * (forearm_angular_acceleration * np.cos(forearm_angle) - forearm_angular_velocity**2 * np.sin(forearm_angle))
+    elbow_acceleration_y = -forearm_length * (forearm_angular_acceleration * np.sin(forearm_angle) + forearm_angular_velocity**2 * np.cos(forearm_angle))
 
-# 2. Vitesses angulaires absolues (dtheta)
-da1 = All_angle_vel.iloc[:, 0].to_numpy()
-da2 = All_angle_vel.iloc[:, 1].to_numpy()
-da3 = All_angle_vel.iloc[:, 2].to_numpy()
+    shoulder_acceleration_x = elbow_acceleration_x + upper_arm_length * (upper_arm_angular_acceleration * np.cos(upper_arm_angle) - upper_arm_angular_velocity**2 * np.sin(upper_arm_angle))
+    shoulder_acceleration_y = elbow_acceleration_y - upper_arm_length * (upper_arm_angular_acceleration * np.sin(upper_arm_angle) + upper_arm_angular_velocity**2 * np.cos(upper_arm_angle))
 
-dtheta1 = -da1
-dtheta2 = dtheta1 + da2
-dtheta3 = dtheta2 - da3
+    forearm_com_acceleration_x = forearm_com_ratio_distal * forearm_length * (forearm_angular_acceleration * np.cos(forearm_angle) - forearm_angular_velocity**2 * np.sin(forearm_angle))
+    forearm_com_acceleration_y = -forearm_com_ratio_distal * forearm_length * (forearm_angular_acceleration * np.sin(forearm_angle) + forearm_angular_velocity**2 * np.cos(forearm_angle))
 
-# 3. Accélérations angulaires absolues (ddtheta)
-dda1 = All_angle_acc.iloc[:, 0].to_numpy()
-dda2 = All_angle_acc.iloc[:, 1].to_numpy()
-dda3 = All_angle_acc.iloc[:, 2].to_numpy()
+    upper_arm_com_acceleration_x = elbow_acceleration_x + upper_arm_com_ratio_distal * upper_arm_length * (upper_arm_angular_acceleration * np.cos(upper_arm_angle) - upper_arm_angular_velocity**2 * np.sin(upper_arm_angle))
+    upper_arm_com_acceleration_y = elbow_acceleration_y - upper_arm_com_ratio_distal * upper_arm_length * (upper_arm_angular_acceleration * np.sin(upper_arm_angle) + upper_arm_angular_velocity**2 * np.cos(upper_arm_angle))
 
-ddtheta1 = -dda1
-ddtheta2 = ddtheta1 + dda2
-ddtheta3 = ddtheta2 - dda3
+    trunk_com_acceleration_x = shoulder_acceleration_x + trunk_com_distance * (trunk_angular_acceleration * np.cos(trunk_angle) - trunk_angular_velocity**2 * np.sin(trunk_angle))
+    trunk_com_acceleration_y = shoulder_acceleration_y - trunk_com_distance * (trunk_angular_acceleration * np.sin(trunk_angle) + trunk_angular_velocity**2 * np.cos(trunk_angle))
 
-n = len(theta1)
+    pelvis_acceleration_x = shoulder_acceleration_x + trunk_length * (trunk_angular_acceleration * np.cos(trunk_angle) - trunk_angular_velocity**2 * np.sin(trunk_angle))
+    pelvis_acceleration_y = shoulder_acceleration_y - trunk_length * (trunk_angular_acceleration * np.sin(trunk_angle) + trunk_angular_velocity**2 * np.cos(trunk_angle))
 
-#calcul des positions
-P_hand = np.zeros((n, 2))
-P_elbow = P_hand + L1 * np.column_stack((np.sin(theta1), np.cos(theta1)))
-P_shoulder = P_elbow + L2 * np.column_stack((np.sin(theta2), np.cos(theta2)))
-P_pelvis = P_shoulder + L3 * np.column_stack((np.sin(theta3), np.cos(theta3)))
-G_bust= P_shoulder + d3 * np.column_stack((np.sin(theta3), np.cos(theta3)))
-G_lower = P_pelvis
+    # force de reaction transmise par les mains (= le "sol" du dip)
+    hand_reaction_force_x = forearm_mass * forearm_com_acceleration_x + upper_arm_mass * upper_arm_com_acceleration_x + trunk_mass * trunk_com_acceleration_x + lower_body_mass * pelvis_acceleration_x
+    hand_reaction_force_y = forearm_mass * forearm_com_acceleration_y + upper_arm_mass * upper_arm_com_acceleration_y + trunk_mass * trunk_com_acceleration_y + lower_body_mass * pelvis_acceleration_y + total_mass * GRAVITY
 
-def torque_calc(m_bust, m_arm, m_forearm, L1, L2, d3, theta1, theta2, theta3, dtheta1, dtheta2, dtheta3, ddtheta1, ddtheta2, ddtheta3):
-    acc_elbow_x = L1 * (ddtheta1 * np.cos(theta1) - dtheta1**2 * np.sin(theta1))
-    acc_elbow_y = - L1 * (ddtheta1 * np.sin(theta1) + dtheta1**2 * np.cos(theta1))
+    # main
+    grip_offset_x = 0.04
+    grip_offset_y = 0.00
+    hand_torque = grip_offset_x * hand_reaction_force_y - grip_offset_y * hand_reaction_force_x
 
-    acc_shoulder_x = acc_elbow_x + L2 * (ddtheta2 * np.cos(theta2) - dtheta2**2 * np.sin(theta2))
-    acc_shoulder_y = acc_elbow_y - L2 * (ddtheta2 * np.sin(theta2) + dtheta2**2 * np.cos(theta2))
+    # coude
+    elbow_joint_force_x = forearm_mass * forearm_com_acceleration_x - hand_reaction_force_x
+    elbow_joint_force_y = forearm_mass * forearm_com_acceleration_y - hand_reaction_force_y + forearm_mass * GRAVITY
 
-    acc_g1_x = r1*L1*(ddtheta1*np.cos(theta1)-dtheta1**2 * np.sin(theta1))
-    acc_g1_y = -r1*L1*(ddtheta1*np.sin(theta1)+dtheta1**2 * np.cos(theta1))
+    forearm_com_to_hand_x = -forearm_com_ratio_distal * forearm_length * np.sin(forearm_angle)
+    forearm_com_to_hand_y = -forearm_com_ratio_distal * forearm_length * np.cos(forearm_angle)
+    forearm_com_to_elbow_x = (1 - forearm_com_ratio_distal) * forearm_length * np.sin(forearm_angle)
+    forearm_com_to_elbow_y = (1 - forearm_com_ratio_distal) * forearm_length * np.cos(forearm_angle)
 
-    acc_g2_x = acc_elbow_x + r2*L2*(ddtheta2*np.cos(theta2)-dtheta2**2 * np.sin(theta2))
-    acc_g2_y = acc_elbow_y - r2*L2*(ddtheta2*np.sin(theta2)+dtheta2**2 * np.cos(theta2))
+    hand_force_moment_on_forearm = forearm_com_to_hand_x * hand_reaction_force_y - forearm_com_to_hand_y * hand_reaction_force_x
+    elbow_force_moment_on_forearm = forearm_com_to_elbow_x * elbow_joint_force_y - forearm_com_to_elbow_y * elbow_joint_force_x
 
-    acc_bust_x = acc_shoulder_x + d3*(ddtheta3*np.cos(theta3)-dtheta3**2 * np.sin(theta3))
-    acc_bust_y = acc_shoulder_y - d3*(ddtheta3*np.sin(theta3)+dtheta3**2 * np.cos(theta3))
+    elbow_torque = forearm_moment_of_inertia * forearm_angular_acceleration - hand_force_moment_on_forearm - elbow_force_moment_on_forearm
 
-    acc_pelvis_x = acc_shoulder_x + L3*(ddtheta3*np.cos(theta3)-dtheta3**2 * np.sin(theta3))
-    acc_pelvis_y = acc_shoulder_y - L3*(ddtheta3*np.sin(theta3)+dtheta3**2 * np.cos(theta3))
+    # epaule
+    shoulder_joint_force_x = upper_arm_mass * upper_arm_com_acceleration_x + elbow_joint_force_x
+    shoulder_joint_force_y = upper_arm_mass * upper_arm_com_acceleration_y + elbow_joint_force_y + upper_arm_mass * GRAVITY
+
+    upper_arm_com_to_elbow_x = -upper_arm_com_ratio_distal * upper_arm_length * np.sin(upper_arm_angle)
+    upper_arm_com_to_elbow_y = -upper_arm_com_ratio_distal * upper_arm_length * np.cos(upper_arm_angle)
+    upper_arm_com_to_shoulder_x = (1 - upper_arm_com_ratio_distal) * upper_arm_length * np.sin(upper_arm_angle)
+    upper_arm_com_to_shoulder_y = (1 - upper_arm_com_ratio_distal) * upper_arm_length * np.cos(upper_arm_angle)
+
+    elbow_force_moment_on_upper_arm = upper_arm_com_to_elbow_x * (-elbow_joint_force_y) - upper_arm_com_to_elbow_y * (-elbow_joint_force_x)
+    shoulder_force_moment_on_upper_arm = upper_arm_com_to_shoulder_x * shoulder_joint_force_y - upper_arm_com_to_shoulder_y * shoulder_joint_force_x
+
+    shoulder_torque = upper_arm_moment_of_inertia * upper_arm_angular_acceleration + elbow_torque - elbow_force_moment_on_upper_arm - shoulder_force_moment_on_upper_arm
+
+    return hand_torque, elbow_torque, shoulder_torque
 
 
-    #Force de réaction
-    M_tot = m_body + m_weight
+def triceps_lever_arm(elbow_angle):
+    return 0.021 + 0.005 * np.sin(elbow_angle)
 
-    F_grf_x = m_forearm*acc_g1_x + m_arm*acc_g2_x + m_bust*acc_bust_x + m_lower*acc_pelvis_x
-    F_grf_y = m_forearm*acc_g1_y + m_arm*acc_g2_y + m_bust*acc_bust_y + m_lower*acc_pelvis_y + M_tot*g
 
-    #Hand
-    d_grip_x = 0.04
-    d_grip_y = 0.00
-    tau_hand = (d_grip_x * F_grf_y) - (d_grip_y * F_grf_x)
+# ---------------------------------------------------------------------------
 
-    #Elbow
-    F_elbow_x = m_forearm * acc_g1_x - F_grf_x
-    F_elbow_y = m_forearm * acc_g1_y - F_grf_y + m_forearm * g
+smoothed_list, vel_list, acc_list = [], [], []
+dt = None
+for path in csv_file_paths:
+    smooth, vel, acc, dt = load_tracking_angle(path)  # dt du dernier fichier reutilise plus bas (meme framerate suppose)
+    smoothed_list.append(pd.Series(smooth))
+    vel_list.append(pd.Series(vel))
+    acc_list.append(pd.Series(acc))
 
-    rx_G1_hand = - r1 * L1 * np.sin(theta1)
-    ry_G1_hand = - r1 * L1 * np.cos(theta1)
-    rx_G1_elbow = (1 - r1) * L1 * np.sin(theta1)
-    ry_G1_elbow = (1 - r1) * L1 * np.cos(theta1)
-    
-    M_grf_on_forearm = rx_G1_hand * F_grf_y - ry_G1_hand * F_grf_x
-    M_elbow_on_forearm = rx_G1_elbow * F_elbow_y - ry_G1_elbow * F_elbow_x
-    
-    tau_elbow = I_cm_forearm * ddtheta1 - M_grf_on_forearm - M_elbow_on_forearm
-    
-    #Forearm
-    F_shoulder_x = m_arm * acc_g2_x - (-F_elbow_x)
-    F_shoulder_y = m_arm * acc_g2_y - (-F_elbow_y) + m_arm * g
-    
-    rx_G2_elbow = - r2 * L2 * np.sin(theta2)
-    ry_G2_elbow = - r2 * L2 * np.cos(theta2)
-    rx_G2_shoulder = (1 - r2) * L2 * np.sin(theta2)
-    ry_G2_shoulder = (1 - r2) * L2 * np.cos(theta2)
-    
-    M_elbow_on_arm = rx_G2_elbow * (-F_elbow_y) - ry_G2_elbow * (-F_elbow_x)
-    M_shoulder_on_arm = rx_G2_shoulder * F_shoulder_y - ry_G2_shoulder * F_shoulder_x
-    
-    tau_shoulder = I_cm_arm * ddtheta2 - (-tau_elbow) - M_elbow_on_arm - M_shoulder_on_arm
-    return tau_hand, tau_elbow, tau_shoulder
+all_angle_smooth = pd.concat(smoothed_list, axis=1)
+all_angle_vel = pd.concat(vel_list, axis=1)
+all_angle_acc = pd.concat(acc_list, axis=1)
 
-tau_hand, tau_elbow, tau_shoulder = torque_calc(m_bust, m_arm, m_forearm, L1, L2, d3, theta1, theta2, theta3, dtheta1, dtheta2, dtheta3, ddtheta1, ddtheta2, ddtheta3)
+# 1. Angles absolus (par rapport a la verticale)
+a1 = all_angle_smooth.iloc[:, 0].to_numpy()
+a2 = all_angle_smooth.iloc[:, 1].to_numpy()
+a3 = all_angle_smooth.iloc[:, 2].to_numpy()
 
-n_frames = len(theta1)
+forearm_angle = -a1 + np.pi / 2
+upper_arm_angle = forearm_angle - np.pi + a2
+trunk_angle = np.pi - (-upper_arm_angle + a3)
+
+# 2. Vitesses angulaires absolues
+da1 = all_angle_vel.iloc[:, 0].to_numpy()
+da2 = all_angle_vel.iloc[:, 1].to_numpy()
+da3 = all_angle_vel.iloc[:, 2].to_numpy()
+
+forearm_angular_velocity = -da1
+upper_arm_angular_velocity = forearm_angular_velocity + da2
+trunk_angular_velocity = upper_arm_angular_velocity - da3
+
+# 3. Accelerations angulaires absolues
+dda1 = all_angle_acc.iloc[:, 0].to_numpy()
+dda2 = all_angle_acc.iloc[:, 1].to_numpy()
+dda3 = all_angle_acc.iloc[:, 2].to_numpy()
+
+forearm_angular_acceleration = -dda1
+upper_arm_angular_acceleration = forearm_angular_acceleration + dda2
+trunk_angular_acceleration = upper_arm_angular_acceleration - dda3
+
+n_frames = len(forearm_angle)
+
+# positions
+hand_position = np.zeros((n_frames, 2))
+elbow_position = hand_position + FOREARM_LENGTH * np.column_stack((np.sin(forearm_angle), np.cos(forearm_angle)))
+shoulder_position = elbow_position + UPPER_ARM_LENGTH * np.column_stack((np.sin(upper_arm_angle), np.cos(upper_arm_angle)))
+pelvis_position = shoulder_position + TRUNK_LENGTH * np.column_stack((np.sin(trunk_angle), np.cos(trunk_angle)))
+trunk_com_position = shoulder_position + TRUNK_COM_DISTANCE * np.column_stack((np.sin(trunk_angle), np.cos(trunk_angle)))
+lower_body_com_position = pelvis_position
+
+hand_torque, elbow_torque, shoulder_torque = compute_joint_torques(
+    forearm_mass, upper_arm_mass, trunk_mass, lower_body_mass, total_system_mass,
+    FOREARM_LENGTH, UPPER_ARM_LENGTH, TRUNK_LENGTH, TRUNK_COM_DISTANCE,
+    forearm_angle, upper_arm_angle, trunk_angle,
+    forearm_angular_velocity, upper_arm_angular_velocity, trunk_angular_velocity,
+    forearm_angular_acceleration, upper_arm_angular_acceleration, trunk_angular_acceleration,
+)
+
+triceps_lever = triceps_lever_arm(a2)
+triceps_force = np.abs(elbow_torque) / triceps_lever
+triceps_impulse = np.sum(triceps_force * dt)
+
 frames_x = np.arange(n_frames)
 
-#Config plots
-fig, (ax_anim, ax_torque) = plt.subplots(1, 2, figsize=(12, 5))
+# --- Plots ---
+fig, (ax_anim, ax_torque, ax_tension) = plt.subplots(1, 3, figsize=(18, 5))
 
-# Graphique 1 : Squelette et trajectoires
 ax_anim.set_xlim(-0.5, 1)
 ax_anim.set_ylim(-1, 1)
 ax_anim.set_aspect("equal")
-ax_anim.set_title("Cinématique du mouvement")
+ax_anim.set_title("Cinematique du mouvement")
 ax_anim.set_xlabel("X (m)")
 ax_anim.set_ylabel("Y (m)")
 ax_anim.grid(True, alpha=0.3)
 
-(ligne_corps,) = ax_anim.plot([], [], "ko-", lw=3, markersize=8, label="Segments")
-(trajectoire_coude,) = ax_anim.plot([], [], "r--", lw=1, alpha=0.5, label="Coude")
-(trajectoire_epaule,) = ax_anim.plot([], [], "g--", lw=1, alpha=0.5, label="Épaule")
-(trajectoire_buste,) = ax_anim.plot([], [], "b--", lw=1, alpha=0.5, label="Buste")
+(body_line,) = ax_anim.plot([], [], "ko-", lw=3, markersize=8, label="Segments")
+(elbow_traj,) = ax_anim.plot([], [], "r--", lw=1, alpha=0.5, label="Coude")
+(shoulder_traj,) = ax_anim.plot([], [], "g--", lw=1, alpha=0.5, label="Epaule")
+(pelvis_traj,) = ax_anim.plot([], [], "b--", lw=1, alpha=0.5, label="Bassin")
 ax_anim.legend(loc="upper right")
 
-# Graphique 2 : Torques superposés
 ax_torque.set_xlim(0, n_frames)
-y_min = min(tau_hand.min(), tau_elbow.min(), tau_shoulder.min())
-y_max = max(tau_hand.max(), tau_elbow.max(), tau_shoulder.max())
+y_min = min(hand_torque.min(), elbow_torque.min(), shoulder_torque.min())
+y_max = max(hand_torque.max(), elbow_torque.max(), shoulder_torque.max())
 margin = (y_max - y_min) * 0.1 if y_max != y_min else 1.0
 ax_torque.set_ylim(y_min - margin, y_max + margin)
 
-ax_torque.set_title("Couples articulaires instantanés")
+ax_torque.set_title("Couples articulaires instantanes")
 ax_torque.set_xlabel("Frames / Temps")
 ax_torque.set_ylabel(r"Torque ($\mathrm{N}\cdot\mathrm{m}$)")
 ax_torque.grid(True, alpha=0.3)
 
 (line_tau_hand,) = ax_torque.plot([], [], "m-", lw=2, label="Torque Main")
 (line_tau_elbow,) = ax_torque.plot([], [], "r-", lw=2, label="Torque Coude")
-(line_tau_shoulder,) = ax_torque.plot([], [], "g-", lw=2, label="Torque Épaule")
+(line_tau_shoulder,) = ax_torque.plot([], [], "g-", lw=2, label="Torque Epaule")
 ax_torque.legend(loc="upper right")
+
+ax_tension.set_xlim(0, n_frames)
+ax_tension.set_ylim(0, triceps_force.max() * 1.1)
+ax_tension.set_title("Tension mecanique du triceps")
+ax_tension.set_xlabel("Frames / Temps")
+ax_tension.set_ylabel(r"Force de traction ($N$)")
+ax_tension.grid(True, alpha=0.3)
+
+(line_f_triceps,) = ax_tension.plot([], [], "b-", lw=2, label="Force Triceps")
+ax_tension.legend(loc="upper right")
 
 plt.tight_layout()
 
 
-#Animation synchro
 def animate(i):
-    x = [P_hand[i, 0], P_elbow[i, 0], P_shoulder[i, 0], P_pelvis[i, 0], P_pelvis[i, 0]]
-    y = [P_hand[i, 1], P_elbow[i, 1], P_shoulder[i, 1], P_pelvis[i, 1], P_pelvis[i, 1] - 0.6]
-    ligne_corps.set_data(x, y)
+    x = [hand_position[i, 0], elbow_position[i, 0], shoulder_position[i, 0], pelvis_position[i, 0], pelvis_position[i, 0]]
+    y = [hand_position[i, 1], elbow_position[i, 1], shoulder_position[i, 1], pelvis_position[i, 1], pelvis_position[i, 1] - 0.6]
+    body_line.set_data(x, y)
 
-    trajectoire_coude.set_data(P_elbow[: i + 1, 0], P_elbow[: i + 1, 1])
-    trajectoire_epaule.set_data(P_shoulder[: i + 1, 0], P_shoulder[: i + 1, 1])
-    trajectoire_buste.set_data(P_pelvis[: i + 1, 0], P_pelvis[: i + 1, 1])
+    elbow_traj.set_data(elbow_position[: i + 1, 0], elbow_position[: i + 1, 1])
+    shoulder_traj.set_data(shoulder_position[: i + 1, 0], shoulder_position[: i + 1, 1])
+    pelvis_traj.set_data(pelvis_position[: i + 1, 0], pelvis_position[: i + 1, 1])
 
     t = frames_x[: i + 1]
-    line_tau_hand.set_data(t, tau_hand[: i + 1])
-    line_tau_elbow.set_data(t, tau_elbow[: i + 1])
-    line_tau_shoulder.set_data(t, tau_shoulder[: i + 1])
+    line_tau_hand.set_data(t, hand_torque[: i + 1])
+    line_tau_elbow.set_data(t, elbow_torque[: i + 1])
+    line_tau_shoulder.set_data(t, shoulder_torque[: i + 1])
 
-    return (
-        ligne_corps,
-        trajectoire_coude,
-        trajectoire_epaule,
-        trajectoire_buste,
-        line_tau_hand,
-        line_tau_elbow,
-        line_tau_shoulder,
-    )
+    line_f_triceps.set_data(t, triceps_force[: i + 1])
+
+    return (body_line, elbow_traj, shoulder_traj, pelvis_traj, line_tau_hand, line_tau_elbow, line_tau_shoulder, line_f_triceps)
 
 
 ani = animation.FuncAnimation(fig, animate, frames=n_frames, interval=30, blit=True)
