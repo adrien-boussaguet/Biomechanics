@@ -39,6 +39,16 @@ trunk_moment_of_inertia = 2.5  # pas utilise pour l'instant
 elbow_lever_arm = 0.025  # inutilise pour l'instant
 shoulder_lever_arm = 0.045
 
+# --- Tension mecanique (contrainte normale de traction sigma = F_m * cos(alpha_p) / PCSA) ---
+# PCSA (Physiological Cross-Sectional Area) et angle de pennation, cf. quantification_tension_mecanique.txt
+TRICEPS_PCSA = 35e-4                        # m^2 (35 cm^2)
+TRICEPS_PENNATION_ANGLE = np.radians(15)    # rad
+
+PEC_PCSA = 28e-4                            # m^2 (28 cm^2)
+PEC_PENNATION_ANGLE = np.radians(18)        # rad
+PEC_TENDON_LEVER_ARM = 0.04                 # m - bras de levier tendon pectoral (r_pec)
+PEC_FORCE_SHARE = 0.65                      # part du grand pectoral dans le complexe presseur anterieur a l'epaule
+
 # --- Extraction CSV ---
 csv_file_paths = [
     r'G:\Documents\VS Code\Biomecha\Biomechanics\Tracking\Hand Tracking.csv',
@@ -211,6 +221,21 @@ triceps_lever = triceps_lever_arm(a2)
 triceps_force = np.abs(elbow_torque) / triceps_lever
 triceps_impulse = np.sum(triceps_force * dt)
 
+# --- Tension mecanique (contrainte) triceps : sigma(t) = F_triceps(t) * cos(alpha_p) / PCSA ---
+triceps_stress = triceps_force * np.cos(TRICEPS_PENNATION_ANGLE) / TRICEPS_PCSA  # Pa
+triceps_stress_impulse = np.sum(triceps_stress * dt)  # Pa.s -> J_rep,triceps
+
+# --- Tension mecanique (contrainte) grand pectoral ---
+# Force du complexe presseur anterieur a l'epaule = |couple epaule| / bras de levier tendineux,
+# puis part attribuee au grand pectoral (~65% du complexe, cf. quantification_tension_mecanique.txt)
+pec_complex_force = np.abs(shoulder_torque) / PEC_TENDON_LEVER_ARM
+pec_force = PEC_FORCE_SHARE * pec_complex_force
+pec_stress = pec_force * np.cos(PEC_PENNATION_ANGLE) / PEC_PCSA  # Pa
+pec_stress_impulse = np.sum(pec_stress * dt)  # Pa.s -> J_rep,pec
+
+print(f"Contrainte mecanique pic triceps    : {triceps_stress.max() / 1e3:.1f} kPa | J_rep = {triceps_stress_impulse / 1e6:.3f} MPa.s")
+print(f"Contrainte mecanique pic pectoraux  : {pec_stress.max() / 1e3:.1f} kPa | J_rep = {pec_stress_impulse / 1e6:.3f} MPa.s")
+
 frames_x = np.arange(n_frames)
 
 # --- Plots ---
@@ -247,13 +272,15 @@ ax_torque.grid(True, alpha=0.3)
 ax_torque.legend(loc="upper right")
 
 ax_tension.set_xlim(0, n_frames)
-ax_tension.set_ylim(0, triceps_force.max() * 1.1)
-ax_tension.set_title("Tension mecanique du triceps")
+stress_max_kpa = max(triceps_stress.max(), pec_stress.max()) / 1e3
+ax_tension.set_ylim(0, stress_max_kpa * 1.1)
+ax_tension.set_title("Tension mecanique (contrainte)")
 ax_tension.set_xlabel("Frames / Temps")
-ax_tension.set_ylabel(r"Force de traction ($N$)")
+ax_tension.set_ylabel(r"Contrainte $\sigma$ (kPa)")
 ax_tension.grid(True, alpha=0.3)
 
-(line_f_triceps,) = ax_tension.plot([], [], "b-", lw=2, label="Force Triceps")
+(line_sigma_triceps,) = ax_tension.plot([], [], "b-", lw=2, label="Triceps")
+(line_sigma_pec,) = ax_tension.plot([], [], color="darkorange", lw=2, label="Grand pectoral")
 ax_tension.legend(loc="upper right")
 
 plt.tight_layout()
@@ -273,9 +300,10 @@ def animate(i):
     line_tau_elbow.set_data(t, elbow_torque[: i + 1])
     line_tau_shoulder.set_data(t, shoulder_torque[: i + 1])
 
-    line_f_triceps.set_data(t, triceps_force[: i + 1])
+    line_sigma_triceps.set_data(t, triceps_stress[: i + 1] / 1e3)
+    line_sigma_pec.set_data(t, pec_stress[: i + 1] / 1e3)
 
-    return (body_line, elbow_traj, shoulder_traj, pelvis_traj, line_tau_hand, line_tau_elbow, line_tau_shoulder, line_f_triceps)
+    return (body_line, elbow_traj, shoulder_traj, pelvis_traj, line_tau_hand, line_tau_elbow, line_tau_shoulder, line_sigma_triceps, line_sigma_pec)
 
 
 ani = animation.FuncAnimation(fig, animate, frames=n_frames, interval=30, blit=True)
